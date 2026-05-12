@@ -18,7 +18,7 @@ Automatic script to preserve Cursor's chat history when a folder name is changed
    - Enter the old folder name (e.g., `old_folder`)
    - The script finds the old workspace (based on the old folder name)
    - The script finds the new workspace (based on the new folder name)
-   - Copies the `state.vscdb` file from the old workspace to the new workspace (for chat history)
+   - Copies `state.vscdb` (and SQLite `-wal` / `-shm` sidecars when present) from the old workspace to the new workspace (for chat history)
    - Updates all path references in the new workspace
 
 6. **After the script completes, reopen Cursor**
@@ -52,7 +52,7 @@ If your user-data layout differs, set **`CURSOR_USER_DATA_DIR`** to the director
 
 - ✅ Prompts user for old folder name (reliable detection)
 - ✅ Automatically finds old and new workspaces
-- ✅ Preserves chat history (copies state.vscdb)
+- ✅ Preserves chat history (copies `state.vscdb` and WAL sidecars when present)
 - ✅ Updates all path formats (Windows, URI, etc.)
 - ✅ Updates nested paths within JSON
 - ✅ Backup (existing state.vscdb is backed up)
@@ -98,7 +98,7 @@ python3 update_cursor_workspace_path_EN.py
 
 1. **Finding Old Workspace**: Finds the old workspace based on the old folder name
 2. **Finding New Workspace**: Finds the new workspace based on the new folder name
-3. **Copying Chat History**: Copies the `state.vscdb` file from the old workspace to the new workspace
+3. **Copying Chat History**: Copies `state.vscdb` (and `-wal`/`-shm` if present) from the old workspace to the new workspace
 4. **Updating Paths**: Updates all path references in the new workspace
 
 ## Important Notes
