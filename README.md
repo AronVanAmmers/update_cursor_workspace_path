@@ -1,31 +1,24 @@
 # Cursor Workspace Path Updater
 
-Automatic script to preserve Cursor's chat history when a folder name is changed.
+Small script: after you rename a project folder, it moves Cursor’s workspace SQLite data so chat/agent history can keep working.
 
 ## Usage
 
-1. **Rename the folder** (e.g., `old_folder` → `new_folder`)
+1. Rename the folder (`old_folder` → `new_folder`).
 
-2. **Open Cursor with the new folder name** (to create the workspace)
+2. Open **new_folder** in Cursor once so it creates a workspace entry.
 
-3. **COMPLETELY CLOSE CURSOR** ⚠️
-   - If the script is run while Cursor is open, Cursor may lock or recreate the file
-   - Close all Cursor windows
+3. **Quit Cursor completely** (all windows). If Cursor is running, it may lock files or overwrite them.
 
-4. **Run the script from an external shell** — **not** from Cursor's integrated terminal (follow **Windows** or **Linux / WSL** below).
+4. Open a normal terminal **outside** Cursor (not the integrated terminal). See **Windows** or **Linux / WSL** below.
 
-5. **The script will ask for the old folder name:**
-   - Enter the old folder name (e.g., `old_folder`)
-   - The script finds the old workspace (based on the old folder name)
-   - The script finds the new workspace (based on the new folder name)
-   - Copies `state.vscdb` (and SQLite `-wal` / `-shm` sidecars when present) from the old workspace to the new workspace (for chat history)
-   - Updates all path references in the new workspace
+5. **`cd` into the renamed folder**, then run the script. It asks for the **old** folder name. It copies `state.vscdb` (plus `-wal` / `-shm` when present) from the old workspace folder into the new one and rewrites stored paths.
 
-6. **After the script completes, reopen Cursor**
+6. Start Cursor again.
 
 ### Windows
 
-Use **CMD or PowerShell** outside Cursor — not the integrated terminal.
+CMD or PowerShell, outside Cursor:
 
 ```bash
 cd C:\Users\Guzelbilen\Desktop\new_folder
@@ -34,105 +27,87 @@ python update_cursor_workspace_path_EN.py
 
 ### Linux / WSL
 
-Use your **system terminal** (e.g. **bash**) outside Cursor — not the integrated terminal.
+bash or another system shell, outside Cursor:
 
 ```bash
 cd /home/youruser/develop/new_folder
 python3 update_cursor_workspace_path_EN.py
 ```
 
-**Workspace storage** (the script scans existing directories automatically; paths below help when troubleshooting):
+### Where Cursor stores workspaces
 
-- **WSL + Cursor Desktop (Windows app)** opens Linux folders as remote workspaces; SQLite often lives on **Windows**, visible from WSL as  
-  **`/mnt/c/Users/<WindowsUser>/AppData/Roaming/Cursor/User/workspaceStorage`**.  
-  The script adds this path automatically when `/mnt/c` exists (using `CURSOR_WINDOWS_USERNAME`, then `$USER`, then `$LOGNAME`).  
-  If your Linux login differs from your Windows username, set **`CURSOR_WINDOWS_USERNAME`** to the folder name under `C:\\Users\\...`.
-- **WSL / Linux server-style installs:** often `~/.cursor-server/data/User/workspaceStorage`
-- **Some desktop Linux installs:** often `~/.config/Cursor/User/workspaceStorage`
+The script checks paths that already exist on disk; you only need this list when something fails.
 
-If your user-data layout differs, set **`CURSOR_USER_DATA_DIR`** to the directory that contains the `User` folder (the script will look under `User/workspaceStorage`).
+- **Cursor on Windows + folder in WSL:** Cursor often writes under Windows. From WSL that looks like  
+  `/mnt/c/Users/<WindowsUser>/AppData/Roaming/Cursor/User/workspaceStorage`.  
+  If `/mnt/c` is there, the script adds this automatically (username from `CURSOR_WINDOWS_USERNAME`, then `$USER`, then `$LOGNAME`). If your Linux login name differs from your Windows profile folder, set **`CURSOR_WINDOWS_USERNAME`** to that folder name under `C:\Users\`.
+- **Linux “server” layout:** often `~/.cursor-server/data/User/workspaceStorage`
+- **Linux desktop layout:** often `~/.config/Cursor/User/workspaceStorage`
 
-## Features
+Override: set **`CURSOR_USER_DATA_DIR`** to the directory that **contains** the `User` folder (the script uses `User/workspaceStorage` under it).
 
-- ✅ Prompts user for old folder name (reliable detection)
-- ✅ Automatically finds old and new workspaces
-- ✅ Preserves chat history (copies `state.vscdb` and WAL sidecars when present)
-- ✅ Updates all path formats (Windows, URI, etc.)
-- ✅ Updates nested paths within JSON
-- ✅ Backup (existing state.vscdb is backed up)
-- ✅ Safe update with user confirmation
-- ✅ `vscode-remote://…` WSL folder URIs preserved when rewriting paths
-- ✅ Windows, macOS and Linux support (including Cursor-on-Windows + WSL folders via `/mnt/c`)
+## What it does
 
-## Example Usage
+- Asks for the old folder name (same parent directory as the new name).
+- Locates old and new workspace entries under `workspaceStorage`.
+- Copies the SQLite files that hold workspace state.
+- Rewrites path strings (including `vscode-remote://…` for WSL when needed).
+- Backs up an existing target `state.vscdb` as `state.vscdb.backup`.
+
+## Examples
 
 ### Windows
 
 ```bash
-# 1. Rename folder: old_folder → new_folder
-# 2. Open new folder with Cursor (to create workspace)
-# 3. COMPLETELY CLOSE CURSOR
-# 4. From CMD or PowerShell outside Cursor:
+# Rename: old_folder → new_folder
+# Open new_folder in Cursor once, then quit Cursor
+# Run from CMD or PowerShell outside Cursor:
 
 cd C:\Users\Guzelbilen\Desktop\new_folder
 python update_cursor_workspace_path_EN.py
-
-# Script will ask for old folder name:
 # Old folder name: old_folder
-
-# 5. After script completes, reopen Cursor
 ```
 
 ### Linux / WSL
 
 ```bash
-# 1. Rename folder: old_folder → new_folder
-# 2. Open new folder with Cursor (to create workspace)
-# 3. COMPLETELY CLOSE CURSOR
-# 4. From a system terminal (e.g. bash) outside Cursor:
+# Rename: old_folder → new_folder
+# Open new_folder in Cursor once, then quit Cursor
+# Run from bash outside Cursor:
 
 cd /home/youruser/develop/new_folder
 python3 update_cursor_workspace_path_EN.py
-
 # Old folder name: old_folder
-
-# 5. After script completes, reopen Cursor
 ```
 
-## How It Works?
+## Flow
 
-1. **Finding Old Workspace**: Finds the old workspace based on the old folder name
-2. **Finding New Workspace**: Finds the new workspace based on the new folder name
-3. **Copying Chat History**: Copies `state.vscdb` (and `-wal`/`-shm` if present) from the old workspace to the new workspace
-4. **Updating Paths**: Updates all path references in the new workspace
+1. Find workspace tied to the **old** path (from the name you type).
+2. Find workspace tied to the **current** directory (the **new** path).
+3. Copy `state.vscdb` (and WAL sidecars if present).
+4. Patch paths inside the copied DB and `workspace.json` when needed.
 
-## Important Notes
+## Rules
 
-- ⚠️ **Run the script from an external shell, not from Cursor's integrated terminal**
-  - **Windows:** CMD or PowerShell outside Cursor
-  - **Linux / WSL / macOS:** system terminal (e.g. bash) outside Cursor
-- ⚠️ **COMPLETELY CLOSE CURSOR before running the script!**
-- The script copies the `state.vscdb` file to preserve chat history
-- Existing `state.vscdb` file is backed up with `.backup` extension
-- The script only updates actual path references
-- Text content in chat messages is not changed
-- Hash keys are not changed for security reasons
-- If the new workspace is not found, try closing and reopening Cursor once
+- Run from an external shell: **Windows** → CMD/PowerShell; **Linux / WSL / macOS** → e.g. bash. Not Cursor’s integrated terminal.
+- Quit Cursor before you run it.
+- Chat message text is not edited; only path-like strings get replaced.
+- Workspace keys (hashes) stay as Cursor assigned them.
+- If the new workspace is missing, open the renamed folder in Cursor once, quit, and retry.
 
 ## Troubleshooting
 
-**Workspace not found:**
-- Make sure you opened the folder with Cursor (to create the workspace)
-- Close and reopen Cursor once
-- Check that the `workspaceStorage` folder is in the correct location
-- On **Linux / WSL**, confirm whether data lives under `~/.cursor-server/data/User/workspaceStorage` or `~/.config/Cursor/User/workspaceStorage`, or set `CURSOR_USER_DATA_DIR`
+**Workspace not found**
 
-**Chat history didn't appear:**
-- ⚠️ Make sure you ran the script from **CMD/PowerShell** (Windows) or a **system terminal** (Linux/WSL/macOS), not from Cursor's integrated terminal
-- ⚠️ Make sure you COMPLETELY CLOSED Cursor before running the script
-- Check that the script successfully completed the copy operation (ItemTable check)
-- Check that the `ItemTable` table exists in the `state.vscdb` file in the new workspace
+- You never opened the renamed folder in Cursor, or Cursor hasn’t written storage yet — open it once, quit, retry.
+- Storage lives somewhere unexpected — check the paths above or set `CURSOR_USER_DATA_DIR`.
 
-**Paths not updated:**
-- Completely close and reopen Cursor
-- Try running the script as administrator (Windows)
+**History still missing**
+
+- You ran it from Cursor’s terminal, or Cursor was still open — use an external shell and quit Cursor first.
+- Confirm the script printed a successful copy (including `ItemTable` on the target DB).
+
+**Paths look stale**
+
+- Quit Cursor fully and reopen the project.
+- On Windows, try running the terminal as Administrator if files stayed locked.
