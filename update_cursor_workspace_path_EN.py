@@ -20,20 +20,26 @@ import json
 import sys
 import shutil
 from pathlib import Path
-from urllib.parse import urlparse, unquote
+from urllib.parse import urlparse, unquote, urlunsplit
 
 
-def file_uri_to_fs_path(uri: str) -> str:
-    """Convert workspace.json `folder` file: URI to a filesystem path.
+def workspace_uri_to_fs_path(uri: str) -> str:
+    """Map workspace.json `folder` URI to a local filesystem path when possible.
 
-    Correctly preserves POSIX roots (file:///home/user/proj → /home/user/proj).
-    On Windows, uses url2pathname for drive letters and UNC paths.
+    Handles ``file:`` (incl. ``file:///home/...`` on POSIX), ``vscode-remote:``
+    for WSL / SSH folder workspaces (path component under Linux/WSL).
+    Returns ``uri`` unchanged when scheme cannot be mapped (caller should skip).
     """
     if not uri:
         return uri
-    if not uri.startswith('file:'):
-        return uri
     parsed = urlparse(uri)
+    if parsed.scheme == 'vscode-remote':
+        path = unquote(parsed.path or '')
+        if path.startswith('/'):
+            return path
+        return uri
+    if parsed.scheme != 'file':
+        return uri
     path = unquote(parsed.path or '')
     if sys.platform == 'win32':
         from urllib.request import url2pathname
@@ -43,6 +49,55 @@ def file_uri_to_fs_path(uri: str) -> str:
     if len(path) >= 3 and path[0] == '/' and path[1].isalpha() and path[2] == ':':
         path = path[1:]
     return path
+
+
+def rewrite_workspace_folder_uri(folder_uri: str, old_fs: str, new_fs: str):
+    """If folder_uri points at old_fs, return equivalent URI for new_fs; else None."""
+    mapped = workspace_uri_to_fs_path(folder_uri)
+    if mapped == folder_uri or not mapped.startswith('/'):
+        return None
+    try:
+        cur_norm = str(Path(mapped).resolve())
+        old_norm = str(Path(old_fs).resolve())
+        new_norm = str(Path(new_fs).resolve())
+        new_posix = Path(new_fs).as_posix()
+    except OSError:
+        return None
+    if cur_norm.lower() != old_norm.lower():
+        return None
+    parsed = urlparse(folder_uri)
+    if parsed.scheme == 'vscode-remote':
+        return urlunsplit(('vscode-remote', parsed.netloc, new_posix, '', ''))
+    if parsed.scheme == 'file':
+        new_for_uri = new_norm.replace('\\', '/').replace(':', '%3A')
+        return f'file:///{new_for_uri}'
+    return None
+
+
+def _wsl_windows_cursor_workspace_storage():
+    """Windows-hosted Cursor data visible from Linux/WSL under ``/mnt/c``."""
+    drive_c = Path('/mnt/c')
+    if not drive_c.is_dir():
+        return None
+    win_user = (
+        os.environ.get('CURSOR_WINDOWS_USERNAME')
+        or os.environ.get('USER')
+        or os.environ.get('LOGNAME')
+        or ''
+    ).strip()
+    if not win_user:
+        return None
+    candidate = (
+        drive_c
+        / 'Users'
+        / win_user
+        / 'AppData'
+        / 'Roaming'
+        / 'Cursor'
+        / 'User'
+        / 'workspaceStorage'
+    )
+    return candidate if candidate.is_dir() else None
 
 
 def workspace_storage_candidates():
@@ -81,6 +136,9 @@ def workspace_storage_candidates():
             / 'workspaceStorage'
         )
     else:
+        win_ws = _wsl_windows_cursor_workspace_storage()
+        if win_ws:
+            add(win_ws)
         add(Path.home() / '.cursor-server' / 'data' / 'User' / 'workspaceStorage')
         add(Path.home() / '.cursor' / 'User' / 'workspaceStorage')
         default_config_ws = Path.home() / '.config' / 'Cursor' / 'User' / 'workspaceStorage'
@@ -136,7 +194,7 @@ def find_workspace_by_path(target_path, folder_name_hint=None):
                     if not folder_uri:
                         continue
 
-                    workspace_path = file_uri_to_fs_path(folder_uri)
+                    workspace_path = workspace_uri_to_fs_path(folder_uri)
 
                     # Normalize paths
                     try:
@@ -325,11 +383,16 @@ def copy_state_db(source_db_path, target_db_path):
         return False
 
 
-def update_paths_in_database(db_path, old_path, new_path):
-    """Update all paths in database"""
+def update_paths_in_database(db_path, old_path, new_path, uri_pairs=None):
+    """Update all paths in database.
+
+    uri_pairs: optional list of (old_str, new_str) for exact replacements (e.g. vscode-remote URIs).
+    """
     if not os.path.exists(db_path):
         return 0
-    
+
+    uri_pairs = uri_pairs or []
+
     # Prepare path formats
     old_paths = []
     new_paths = []
@@ -368,6 +431,12 @@ def update_paths_in_database(db_path, old_path, new_path):
         new_uri.replace('file:///', 'file:///c'),
     ])
     
+    # Also replace explicit URI pairs (e.g. vscode-remote folder URIs)
+    for old_u, new_u in uri_pairs:
+        if old_u and new_u and old_u != new_u:
+            old_paths.append(old_u)
+            new_paths.append(new_u)
+
     # Just folder name
     old_folder = os.path.basename(old_path)
     new_folder = os.path.basename(new_path)
@@ -434,16 +503,12 @@ def update_workspace_json(workspace_json_path, old_path, new_path):
         
         folder_uri = workspace_data.get('folder', '')
         if folder_uri:
-            # Replace old path with new path
-            # Cannot use backslash in f-string, do the operation first
-            new_path_for_uri = new_path.replace('\\', '/').replace(':', '%3A')
-            new_uri = f"file:///{new_path_for_uri}"
-            workspace_data['folder'] = new_uri
-            
-            with open(workspace_json_path, 'w', encoding='utf-8') as f:
-                json.dump(workspace_data, f, indent=2)
-            
-            return True
+            new_uri = rewrite_workspace_folder_uri(folder_uri, old_path, new_path)
+            if new_uri:
+                workspace_data['folder'] = new_uri
+                with open(workspace_json_path, 'w', encoding='utf-8') as f:
+                    json.dump(workspace_data, f, indent=2)
+                return True
     except Exception as e:
         print(f"⚠️  Could not update workspace.json: {e}")
     
@@ -562,7 +627,7 @@ def main():
                 workspace_data = json.load(f)
             found_path_uri = workspace_data.get('folder', '')
             if found_path_uri:
-                found_path = file_uri_to_fs_path(found_path_uri)
+                found_path = workspace_uri_to_fs_path(found_path_uri)
                 print(f"   Workspace path: {found_path}")
                 
                 # Compare paths
@@ -658,6 +723,18 @@ def main():
     print()
     print("🔄 Updating...")
     print()
+
+    uri_pairs = []
+    if old_workspace_json_path and os.path.exists(old_workspace_json_path):
+        try:
+            with open(old_workspace_json_path, 'r', encoding='utf-8') as f:
+                old_ws_data = json.load(f)
+            ou = old_ws_data.get('folder', '')
+            nu = rewrite_workspace_folder_uri(ou, old_path, current_path)
+            if nu and ou != nu:
+                uri_pairs.append((ou, nu))
+        except Exception:
+            pass
     
     # Update workspace.json
     if workspace_json_path:
@@ -665,7 +742,9 @@ def main():
             print("✅ workspace.json updated")
     
     # Update state.vscdb
-    updated_count = update_paths_in_database(state_db_path, old_path, current_path)
+    updated_count = update_paths_in_database(
+        state_db_path, old_path, current_path, uri_pairs
+    )
     
     if updated_count > 0:
         print(f"✅ {updated_count} rows updated in database")

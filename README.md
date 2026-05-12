@@ -43,6 +43,10 @@ python3 update_cursor_workspace_path_EN.py
 
 **Workspace storage** (the script scans existing directories automatically; paths below help when troubleshooting):
 
+- **WSL + Cursor Desktop (Windows app)** opens Linux folders as remote workspaces; SQLite often lives on **Windows**, visible from WSL as  
+  **`/mnt/c/Users/<WindowsUser>/AppData/Roaming/Cursor/User/workspaceStorage`**.  
+  The script adds this path automatically when `/mnt/c` exists (using `CURSOR_WINDOWS_USERNAME`, then `$USER`, then `$LOGNAME`).  
+  If your Linux login differs from your Windows username, set **`CURSOR_WINDOWS_USERNAME`** to the folder name under `C:\\Users\\...`.
 - **WSL / Linux server-style installs:** often `~/.cursor-server/data/User/workspaceStorage`
 - **Some desktop Linux installs:** often `~/.config/Cursor/User/workspaceStorage`
 
@@ -57,7 +61,8 @@ If your user-data layout differs, set **`CURSOR_USER_DATA_DIR`** to the director
 - ✅ Updates nested paths within JSON
 - ✅ Backup (existing state.vscdb is backed up)
 - ✅ Safe update with user confirmation
-- ✅ Windows, macOS and Linux support
+- ✅ `vscode-remote://…` WSL folder URIs preserved when rewriting paths
+- ✅ Windows, macOS and Linux support (including Cursor-on-Windows + WSL folders via `/mnt/c`)
 
 ## Example Usage
 
