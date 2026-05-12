@@ -450,6 +450,39 @@ def update_workspace_json(workspace_json_path, old_path, new_path):
     return False
 
 
+def _external_terminal_guidance():
+    """Platform-aware user-visible strings for where to run this script."""
+    if sys.platform == 'win32':
+        return {
+            'important_run': (
+                '⚠️  IMPORTANT: Run this script from CMD or PowerShell outside Cursor — '
+                'NOT from Cursor integrated terminal!'
+            ),
+            'confirm_prompt': (
+                'Have you closed Cursor and are you running the script from CMD or PowerShell '
+                'outside Cursor? (Y/n): '
+            ),
+            'risk_integrated': (
+                '⚠️  WARNING: Copying while Cursor is open or from Cursor integrated terminal '
+                'is not recommended!'
+            ),
+        }
+    return {
+        'important_run': (
+            '⚠️  IMPORTANT: Run this script from a system terminal (e.g. bash) outside Cursor — '
+            'NOT from Cursor integrated terminal!'
+        ),
+        'confirm_prompt': (
+            'Have you closed Cursor and are you running the script from a system terminal '
+            'outside Cursor? (Y/n): '
+        ),
+        'risk_integrated': (
+            '⚠️  WARNING: Copying while Cursor is open or from Cursor integrated terminal '
+            'is not recommended!'
+        ),
+    }
+
+
 def main():
     """Main function"""
     print("=" * 80)
@@ -576,7 +609,8 @@ def main():
     print("=" * 80)
     print("📋 Copying state.vscdb file...")
     print()
-    print("⚠️  IMPORTANT: Run this script from CMD or PowerShell, NOT from Cursor terminal!")
+    term = _external_terminal_guidance()
+    print(term['important_run'])
     print("⚠️  COMPLETELY CLOSE CURSOR (all windows) and reopen after the script completes!")
     print()
     print("   If file is copied while Cursor is open:")
@@ -584,10 +618,10 @@ def main():
     print("   - Cursor may recreate the file")
     print("   - Chat history may be lost")
     print()
-    response = input("Have you closed Cursor and are you running the script from CMD/PowerShell? (Y/n): ").strip().lower()
+    response = input(term['confirm_prompt']).strip().lower()
     if response not in ['y', 'yes', 'e', 'evet', '']:
         print()
-        print("⚠️  WARNING: Copying while Cursor is open or from Cursor terminal is not recommended!")
+        print(term['risk_integrated'])
         print("   Chat history may be lost. Do you want to continue?")
         response2 = input("   Continue? (Y/n): ").strip().lower()
         if response2 not in ['y', 'yes', 'e', 'evet', '']:

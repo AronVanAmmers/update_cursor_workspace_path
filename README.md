@@ -12,11 +12,7 @@ Automatic script to preserve Cursor's chat history when a folder name is changed
    - If the script is run while Cursor is open, Cursor may lock or recreate the file
    - Close all Cursor windows
 
-4. **Run the script from CMD or PowerShell** (NOT from Cursor terminal!):
-   ```bash
-   cd C:\Users\Guzelbilen\Desktop\new_folder
-   python update_cursor_workspace_path_EN.py
-   ```
+4. **Run the script from an external shell** — **not** from Cursor's integrated terminal (follow **Windows** or **Linux / WSL** below).
 
 5. **The script will ask for the old folder name:**
    - Enter the old folder name (e.g., `old_folder`)
@@ -26,6 +22,31 @@ Automatic script to preserve Cursor's chat history when a folder name is changed
    - Updates all path references in the new workspace
 
 6. **After the script completes, reopen Cursor**
+
+### Windows
+
+Use **CMD or PowerShell** outside Cursor — not the integrated terminal.
+
+```bash
+cd C:\Users\Guzelbilen\Desktop\new_folder
+python update_cursor_workspace_path_EN.py
+```
+
+### Linux / WSL
+
+Use your **system terminal** (e.g. **bash**) outside Cursor — not the integrated terminal.
+
+```bash
+cd /home/youruser/develop/new_folder
+python3 update_cursor_workspace_path_EN.py
+```
+
+**Workspace storage** (the script scans existing directories automatically; paths below help when troubleshooting):
+
+- **WSL / Linux server-style installs:** often `~/.cursor-server/data/User/workspaceStorage`
+- **Some desktop Linux installs:** often `~/.config/Cursor/User/workspaceStorage`
+
+If your user-data layout differs, set **`CURSOR_USER_DATA_DIR`** to the directory that contains the `User` folder (the script will look under `User/workspaceStorage`).
 
 ## Features
 
@@ -40,16 +61,34 @@ Automatic script to preserve Cursor's chat history when a folder name is changed
 
 ## Example Usage
 
+### Windows
+
 ```bash
 # 1. Rename folder: old_folder → new_folder
 # 2. Open new folder with Cursor (to create workspace)
 # 3. COMPLETELY CLOSE CURSOR
-# 4. From CMD or PowerShell:
+# 4. From CMD or PowerShell outside Cursor:
 
 cd C:\Users\Guzelbilen\Desktop\new_folder
 python update_cursor_workspace_path_EN.py
 
 # Script will ask for old folder name:
+# Old folder name: old_folder
+
+# 5. After script completes, reopen Cursor
+```
+
+### Linux / WSL
+
+```bash
+# 1. Rename folder: old_folder → new_folder
+# 2. Open new folder with Cursor (to create workspace)
+# 3. COMPLETELY CLOSE CURSOR
+# 4. From a system terminal (e.g. bash) outside Cursor:
+
+cd /home/youruser/develop/new_folder
+python3 update_cursor_workspace_path_EN.py
+
 # Old folder name: old_folder
 
 # 5. After script completes, reopen Cursor
@@ -64,7 +103,9 @@ python update_cursor_workspace_path_EN.py
 
 ## Important Notes
 
-- ⚠️ **Run the script from CMD or PowerShell, NOT from Cursor terminal!**
+- ⚠️ **Run the script from an external shell, not from Cursor's integrated terminal**
+  - **Windows:** CMD or PowerShell outside Cursor
+  - **Linux / WSL / macOS:** system terminal (e.g. bash) outside Cursor
 - ⚠️ **COMPLETELY CLOSE CURSOR before running the script!**
 - The script copies the `state.vscdb` file to preserve chat history
 - Existing `state.vscdb` file is backed up with `.backup` extension
@@ -79,9 +120,10 @@ python update_cursor_workspace_path_EN.py
 - Make sure you opened the folder with Cursor (to create the workspace)
 - Close and reopen Cursor once
 - Check that the `workspaceStorage` folder is in the correct location
+- On **Linux / WSL**, confirm whether data lives under `~/.cursor-server/data/User/workspaceStorage` or `~/.config/Cursor/User/workspaceStorage`, or set `CURSOR_USER_DATA_DIR`
 
 **Chat history didn't appear:**
-- ⚠️ Make sure you ran the script from CMD/PowerShell, not from Cursor terminal
+- ⚠️ Make sure you ran the script from **CMD/PowerShell** (Windows) or a **system terminal** (Linux/WSL/macOS), not from Cursor's integrated terminal
 - ⚠️ Make sure you COMPLETELY CLOSED Cursor before running the script
 - Check that the script successfully completed the copy operation (ItemTable check)
 - Check that the `ItemTable` table exists in the `state.vscdb` file in the new workspace
@@ -89,4 +131,3 @@ python update_cursor_workspace_path_EN.py
 **Paths not updated:**
 - Completely close and reopen Cursor
 - Try running the script as administrator (Windows)
-
