@@ -224,6 +224,25 @@ def find_workspace_by_current_folder(current_path):
     return find_workspace_by_path(current_path, current_folder)
 
 
+def _backup_existing_file_if_any(path):
+    """If path exists, copy it to path.backup (same pattern as state.vscdb)."""
+    if os.path.exists(path):
+        backup_path = path + '.backup'
+        shutil.copy2(path, backup_path)
+        print(f"📦 Existing file backed up: {backup_path}")
+
+
+def _copy_state_sidecar_if_present(source_db_path, target_db_path, suffix, label):
+    """Copy SQLite sidecar (e.g. -wal, -shm) when present on source; backup target if needed."""
+    src = source_db_path + suffix
+    dst = target_db_path + suffix
+    if not os.path.exists(src):
+        return
+    _backup_existing_file_if_any(dst)
+    shutil.copy2(src, dst)
+    print(f"📋 Copied {label}: {os.path.basename(dst)}")
+
+
 def copy_state_db(source_db_path, target_db_path):
     """Copy state.vscdb file from old workspace to new workspace"""
     if not os.path.exists(source_db_path):
@@ -255,11 +274,8 @@ def copy_state_db(source_db_path, target_db_path):
         target_dir = os.path.dirname(target_db_path)
         os.makedirs(target_dir, exist_ok=True)
         
-        # Backup (if exists)
-        if os.path.exists(target_db_path):
-            backup_path = target_db_path + '.backup'
-            shutil.copy2(target_db_path, backup_path)
-            print(f"📦 Existing state.vscdb backed up: {backup_path}")
+        # Backup main DB (if exists)
+        _backup_existing_file_if_any(target_db_path)
         
         # Copy
         print(f"📋 Starting copy operation...")
@@ -297,6 +313,8 @@ def copy_state_db(source_db_path, target_db_path):
             return False
         
         print(f"✅ state.vscdb successfully copied and verified")
+        _copy_state_sidecar_if_present(source_db_path, target_db_path, '-wal', 'state.vscdb-wal')
+        _copy_state_sidecar_if_present(source_db_path, target_db_path, '-shm', 'state.vscdb-shm')
         print(f"   Source: {os.path.basename(os.path.dirname(source_db_path))}")
         print(f"   Target: {os.path.basename(os.path.dirname(target_db_path))}")
         return True
