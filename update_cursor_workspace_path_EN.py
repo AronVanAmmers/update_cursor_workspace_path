@@ -20,130 +20,194 @@ import json
 import sys
 import shutil
 from pathlib import Path
+from urllib.parse import urlparse, unquote
 
-# Cursor workspace storage path (Windows)
-CURSOR_STORAGE = os.path.join(
-    os.path.expanduser('~'),
-    'AppData', 'Roaming', 'Cursor', 'User', 'workspaceStorage'
-)
 
-# Alternative paths for Mac/Linux
-if not os.path.exists(CURSOR_STORAGE):
-    if sys.platform == 'darwin':  # macOS
-        CURSOR_STORAGE = os.path.join(
-            os.path.expanduser('~'),
-            'Library', 'Application Support', 'Cursor', 'User', 'workspaceStorage'
+def file_uri_to_fs_path(uri: str) -> str:
+    """Convert workspace.json `folder` file: URI to a filesystem path.
+
+    Correctly preserves POSIX roots (file:///home/user/proj → /home/user/proj).
+    On Windows, uses url2pathname for drive letters and UNC paths.
+    """
+    if not uri:
+        return uri
+    if not uri.startswith('file:'):
+        return uri
+    parsed = urlparse(uri)
+    path = unquote(parsed.path or '')
+    if sys.platform == 'win32':
+        from urllib.request import url2pathname
+
+        return url2pathname(path)
+    # POSIX / WSL: path is e.g. /home/foo or /C:/foo for remote Windows URIs
+    if len(path) >= 3 and path[0] == '/' and path[1].isalpha() and path[2] == ':':
+        path = path[1:]
+    return path
+
+
+def workspace_storage_candidates():
+    """Ordered absolute paths to existing Cursor workspaceStorage directories only."""
+    candidates = []
+    seen = set()
+
+    def add(path_obj):
+        p = Path(path_obj).expanduser()
+        try:
+            rp = p.resolve()
+        except OSError:
+            return
+        key = str(rp)
+        if not rp.is_dir():
+            return
+        if key not in seen:
+            seen.add(key)
+            candidates.append(key)
+
+    override = os.environ.get('CURSOR_USER_DATA_DIR')
+    if override:
+        add(Path(override) / 'User' / 'workspaceStorage')
+
+    if sys.platform == 'win32':
+        appdata = os.environ.get('APPDATA')
+        if appdata:
+            add(Path(appdata) / 'Cursor' / 'User' / 'workspaceStorage')
+    elif sys.platform == 'darwin':
+        add(
+            Path.home()
+            / 'Library'
+            / 'Application Support'
+            / 'Cursor'
+            / 'User'
+            / 'workspaceStorage'
         )
-    elif sys.platform.startswith('linux'):  # Linux
-        CURSOR_STORAGE = os.path.join(
-            os.path.expanduser('~'),
-            '.config', 'Cursor', 'User', 'workspaceStorage'
-        )
+    else:
+        add(Path.home() / '.cursor-server' / 'data' / 'User' / 'workspaceStorage')
+        add(Path.home() / '.cursor' / 'User' / 'workspaceStorage')
+        default_config_ws = Path.home() / '.config' / 'Cursor' / 'User' / 'workspaceStorage'
+        add(default_config_ws)
+        xdg = os.environ.get('XDG_CONFIG_HOME', '').strip()
+        if xdg:
+            xdg_ws = Path(xdg).expanduser() / 'Cursor' / 'User' / 'workspaceStorage'
+            try:
+                skip_xdg = xdg_ws.resolve() == default_config_ws.resolve()
+            except OSError:
+                skip_xdg = os.path.normpath(str(xdg_ws)) == os.path.normpath(
+                    str(default_config_ws.expanduser())
+                )
+            if not skip_xdg:
+                add(xdg_ws)
+
+    return candidates
 
 
 def find_workspace_by_path(target_path, folder_name_hint=None):
     """Find workspace by a specific path - full path match is prioritized"""
-    if not os.path.exists(CURSOR_STORAGE):
+    storage_roots = workspace_storage_candidates()
+    if not storage_roots:
         return None
-    
+
     try:
         target_path_normalized = str(Path(target_path).resolve())
         target_parent = str(Path(target_path).parent)
         target_folder = os.path.basename(target_path)
-    except:
+    except Exception:
         target_path_normalized = target_path
         target_parent = os.path.dirname(target_path)
         target_folder = os.path.basename(target_path)
-    
-    # Check all workspace folders
-    for folder in os.listdir(CURSOR_STORAGE):
-        folder_path = os.path.join(CURSOR_STORAGE, folder)
-        if not os.path.isdir(folder_path):
-            continue
-        
-        workspace_json = os.path.join(folder_path, 'workspace.json')
-        state_db = os.path.join(folder_path, 'state.vscdb')
-        
-        # Check from workspace.json (MOST RELIABLE METHOD)
-        if os.path.exists(workspace_json):
-            try:
-                with open(workspace_json, 'r', encoding='utf-8') as f:
-                    workspace_data = json.load(f)
-                
-                folder_uri = workspace_data.get('folder', '')
-                
-                if not folder_uri:
-                    continue
-                
-                # Extract path from URI
-                workspace_path = None
-                if folder_uri.startswith('file:///'):
-                    workspace_path = folder_uri.replace('file:///', '').replace('%3A', ':')
-                else:
-                    workspace_path = folder_uri
-                
-                # Normalize paths
+
+    for storage_root in storage_roots:
+        # Check all workspace folders under this root
+        for folder in os.listdir(storage_root):
+            folder_path = os.path.join(storage_root, folder)
+            if not os.path.isdir(folder_path):
+                continue
+
+            workspace_json = os.path.join(folder_path, 'workspace.json')
+            state_db = os.path.join(folder_path, 'state.vscdb')
+
+            # Check from workspace.json (MOST RELIABLE METHOD)
+            if os.path.exists(workspace_json):
                 try:
-                    workspace_path_normalized = str(Path(workspace_path).resolve())
-                except:
-                    workspace_path_normalized = workspace_path
-                
-                # Paths match exactly
-                if workspace_path_normalized.lower() == target_path_normalized.lower():
-                    return folder, state_db, workspace_json, folder_uri
-                        
-            except Exception as e:
-                pass
-        
-        # Search for full path in state.vscdb (if workspace.json didn't match)
-        if os.path.exists(state_db):
-            try:
-                conn = sqlite3.connect(state_db)
-                cursor = conn.cursor()
-                
-                # First search for full path
-                cursor.execute("SELECT COUNT(*) FROM ItemTable WHERE value LIKE ?", 
-                             (f'%{target_path_normalized}%',))
-                count = cursor.fetchone()[0]
-                
-                if count > 0:
-                    conn.close()
-                    workspace_json_path = workspace_json if os.path.exists(workspace_json) else None
-                    folder_uri = None
-                    if workspace_json_path:
-                        try:
-                            with open(workspace_json_path, 'r', encoding='utf-8') as f:
-                                workspace_data = json.load(f)
-                            folder_uri = workspace_data.get('folder', '')
-                        except:
-                            pass
-                    return folder, state_db, workspace_json_path, folder_uri
-                
-                # If full path not found, search for parent + folder name combination
-                if folder_name_hint:
-                    # Search for parent path and folder name together
-                    search_pattern = f'%{target_parent}%{target_folder}%'
-                    cursor.execute("SELECT COUNT(*) FROM ItemTable WHERE value LIKE ?", 
-                                 (search_pattern,))
+                    with open(workspace_json, 'r', encoding='utf-8') as f:
+                        workspace_data = json.load(f)
+
+                    folder_uri = workspace_data.get('folder', '')
+
+                    if not folder_uri:
+                        continue
+
+                    workspace_path = file_uri_to_fs_path(folder_uri)
+
+                    # Normalize paths
+                    try:
+                        workspace_path_normalized = str(Path(workspace_path).resolve())
+                    except Exception:
+                        workspace_path_normalized = workspace_path
+
+                    # Paths match exactly
+                    if workspace_path_normalized.lower() == target_path_normalized.lower():
+                        return folder, state_db, workspace_json, folder_uri
+
+                except Exception:
+                    pass
+
+            # Search for full path in state.vscdb (if workspace.json didn't match)
+            if os.path.exists(state_db):
+                try:
+                    conn = sqlite3.connect(state_db)
+                    cursor = conn.cursor()
+
+                    # First search for full path
+                    cursor.execute(
+                        'SELECT COUNT(*) FROM ItemTable WHERE value LIKE ?',
+                        (f'%{target_path_normalized}%',),
+                    )
                     count = cursor.fetchone()[0]
-                    
+
                     if count > 0:
                         conn.close()
-                        workspace_json_path = workspace_json if os.path.exists(workspace_json) else None
+                        workspace_json_path = (
+                            workspace_json if os.path.exists(workspace_json) else None
+                        )
                         folder_uri = None
                         if workspace_json_path:
                             try:
                                 with open(workspace_json_path, 'r', encoding='utf-8') as f:
                                     workspace_data = json.load(f)
                                 folder_uri = workspace_data.get('folder', '')
-                            except:
+                            except Exception:
                                 pass
                         return folder, state_db, workspace_json_path, folder_uri
-                
-                conn.close()
-            except:
-                pass
-    
+
+                    # If full path not found, search for parent + folder name combination
+                    if folder_name_hint:
+                        # Search for parent path and folder name together
+                        search_pattern = f'%{target_parent}%{target_folder}%'
+                        cursor.execute(
+                            'SELECT COUNT(*) FROM ItemTable WHERE value LIKE ?',
+                            (search_pattern,),
+                        )
+                        count = cursor.fetchone()[0]
+
+                        if count > 0:
+                            conn.close()
+                            workspace_json_path = (
+                                workspace_json if os.path.exists(workspace_json) else None
+                            )
+                            folder_uri = None
+                            if workspace_json_path:
+                                try:
+                                    with open(workspace_json_path, 'r', encoding='utf-8') as f:
+                                        workspace_data = json.load(f)
+                                    folder_uri = workspace_data.get('folder', '')
+                                except Exception:
+                                    pass
+                            return folder, state_db, workspace_json_path, folder_uri
+
+                    conn.close()
+                except Exception:
+                    pass
+
     return None
 
 
@@ -374,7 +438,16 @@ def main():
     print("Cursor Workspace Path Updater")
     print("=" * 80)
     print()
-    
+
+    roots = workspace_storage_candidates()
+    print('Workspace storage roots (existing directories, searched in order):')
+    if roots:
+        for i, root in enumerate(roots, 1):
+            print(f'  {i}. {root}')
+    else:
+        print('  (none found)')
+    print()
+
     # Get current folder path
     current_path = os.getcwd()
     current_folder = os.path.basename(current_path)
@@ -438,10 +511,7 @@ def main():
                 workspace_data = json.load(f)
             found_path_uri = workspace_data.get('folder', '')
             if found_path_uri:
-                if found_path_uri.startswith('file:///'):
-                    found_path = found_path_uri.replace('file:///', '').replace('%3A', ':')
-                else:
-                    found_path = found_path_uri
+                found_path = file_uri_to_fs_path(found_path_uri)
                 print(f"   Workspace path: {found_path}")
                 
                 # Compare paths
